@@ -1,0 +1,15 @@
+{
+  "name": "vincent/fftt-match-block",
+  "description": "WordPress block plugin to display FFTT match details",
+  "type": "project",
+  "require": {
+    "php": ">=8.1",
+    "jarash/fftt-api": "^0.1.4",
+    "yahnis-elsts/plugin-update-checker": "^5.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "FFTTMatchBlock\\": "includes/"
+    }
+  }
+}

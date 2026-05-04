@@ -1,0 +1,77 @@
+.fftt-match-block {
+    border-radius: 8px;
+    padding: 0;
+    margin: 16px 0;
+    background: #fff;
+}
+
+.fftt-match-score {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 16px;
+    margin-bottom: 12px;
+}
+
+.fftt-team {
+    flex: 1 1 auto;
+}
+
+.fftt-team:last-child {
+    text-align: right;
+}
+
+.fftt-score {
+    font-size: 20px;
+}
+
+.fftt-parties-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.fftt-parties-table th,
+.fftt-parties-table td {
+    border: 1px solid #d0d7de;
+    padding: 8px;
+}
+
+.fftt-parties-table th {
+    background: #f6f8fa;
+    text-align: left;
+}
+
+.fftt-sets {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+}
+
+.fftt-set-score {
+    display: inline-block;
+    min-width: 3ch;
+    padding: 2px 4px;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
+    font-variant-numeric: tabular-nums;
+    background: #f6f8fa;
+    border-radius: 4px;
+}
+
+.fftt-parties-table td:last-child {
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .fftt-match-score {
+        font-size: 14px;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .fftt-team:last-child {
+        text-align: left;
+    }
+}
