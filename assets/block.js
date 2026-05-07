@@ -88,25 +88,7 @@
                 var path = '/fftt-match/v1/matches?teamId=' + encodeURIComponent(String(teamId));
 
                 apiFetch({ path: path }).then(function (response) {
-                    var items = Array.isArray(response.items) ? response.items.slice() : [];
-                    items.sort(function (left, right) {
-                        var leftTs = left && left.date ? Date.parse(left.date) : NaN;
-                        var rightTs = right && right.date ? Date.parse(right.date) : NaN;
-
-                        if (Number.isNaN(leftTs) && Number.isNaN(rightTs)) {
-                            return 0;
-                        }
-                        if (Number.isNaN(leftTs)) {
-                            return 1;
-                        }
-                        if (Number.isNaN(rightTs)) {
-                            return -1;
-                        }
-
-                        return rightTs - leftTs;
-                    });
-
-                    setMatches(items);
+                    setMatches(Array.isArray(response.items) ? response.items.slice() : []);
                     setLoadingMatches(false);
                 }).catch(function (err) {
                     setError(err && err.message ? err.message : 'Erreur lors du chargement des matchs.');

@@ -47,6 +47,59 @@ final class Api
         return self::CACHE_KEY_PREFIX . md5((string) wp_json_encode($payload));
     }
 
+    private static function getTodayMarker(): string
+    {
+        return wp_date('Y-m-d');
+    }
+
+    private static function getTodayCutoffTimestamp(): int
+    {
+        $now = new \DateTimeImmutable('now', wp_timezone());
+        return $now->setTime(23, 59, 59)->getTimestamp();
+    }
+
+    private static function formatMatchDateLabel(int $timestamp): string
+    {
+        if ($timestamp <= 0) {
+            return '';
+        }
+
+        return wp_date('d/m/Y', $timestamp);
+    }
+
+    private static function getCurrentPhase(): int
+    {
+        $month = (int) wp_date('n');
+        return $month >= 1 && $month <= 6 ? 2 : 1;
+    }
+
+    private static function extractPhase(string $label): int
+    {
+        if (preg_match('/\bphase\s+([12])\b/i', $label, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return 0;
+    }
+
+    private static function stripPhaseSuffix(string $label): string
+    {
+        return trim((string) preg_replace('/\s*-\s*phase\s+[12]\b/i', '', $label));
+    }
+
+    private static function getPhasePriority(int $phase): int
+    {
+        if ($phase === self::getCurrentPhase()) {
+            return 2;
+        }
+
+        if ($phase > 0) {
+            return 1;
+        }
+
+        return 0;
+    }
+
     private static function remember(string $cacheKey, callable $resolver): array
     {
         $ttl = self::getCacheTtl();
@@ -103,7 +156,9 @@ final class Api
 
         foreach ($equipes as $equipe) {
             $divisionLink = $equipe->getLienDivision();
-            $clubTeamName = (string) $equipe->getLibelle();
+            $clubTeamLabel = (string) $equipe->getLibelle();
+            $clubTeamName = self::stripPhaseSuffix($clubTeamLabel);
+            $phase = self::extractPhase($clubTeamLabel);
             $normalizedClubTeamName = self::normalize($clubTeamName);
             $equipesPoule = $api->listEquipePouleByLienDivision($divisionLink);
 
@@ -133,16 +188,22 @@ final class Api
                 continue;
             }
 
-            if (isset($contexts[$teamId])) {
-                continue;
-            }
-
-            $contexts[$teamId] = [
+            $context = [
                 'id' => $teamId,
                 'team_name' => (string) $matched->getNomEquipe(),
                 'division_link' => $divisionLink,
                 'club_by_team_name' => $clubByTeamName,
+                'phase' => $phase,
             ];
+
+            if (isset($contexts[$teamId])) {
+                $existingPhase = (int) ($contexts[$teamId]['phase'] ?? 0);
+                if (self::getPhasePriority($phase) <= self::getPhasePriority($existingPhase)) {
+                    continue;
+                }
+            }
+
+            $contexts[$teamId] = $context;
         }
 
         return $contexts;
@@ -163,7 +224,10 @@ final class Api
     public static function listTeamsByClub(): array
     {
         $clubId = self::getClubIdFromSettings();
-        $cacheKey = self::getCacheKey('teams', ['clubId' => $clubId]);
+        $cacheKey = self::getCacheKey('teams', [
+            'clubId' => $clubId,
+            'phase' => self::getCurrentPhase(),
+        ]);
 
         return self::remember($cacheKey, static function () use ($clubId): array {
             $api = self::createClient();
@@ -186,12 +250,69 @@ final class Api
 
     private static function findTeamContext(FFTTApi $api, string $clubId, int $teamId): array
     {
-        $contexts = self::buildClubTeamContexts($api, $clubId);
-        if (isset($contexts[$teamId])) {
-            return $contexts[$teamId];
+        $contexts = self::findTeamContexts($api, $clubId, $teamId);
+        if (empty($contexts)) {
+            throw new \RuntimeException('Equipe non trouvee pour ce club.');
         }
 
-        throw new \RuntimeException('Equipe non trouvee pour ce club.');
+        usort($contexts, static function (array $left, array $right): int {
+            $leftPhase = (int) ($left['phase'] ?? 0);
+            $rightPhase = (int) ($right['phase'] ?? 0);
+            return self::getPhasePriority($rightPhase) <=> self::getPhasePriority($leftPhase);
+        });
+
+        return $contexts[0];
+    }
+
+    private static function findTeamContexts(FFTTApi $api, string $clubId, int $teamId): array
+    {
+        $contexts = [];
+        $equipes = $api->listEquipesByClub($clubId);
+
+        foreach ($equipes as $equipe) {
+            $divisionLink = (string) $equipe->getLienDivision();
+            $clubTeamLabel = (string) $equipe->getLibelle();
+            $clubTeamName = self::stripPhaseSuffix($clubTeamLabel);
+            $phase = self::extractPhase($clubTeamLabel);
+            $normalizedClubTeamName = self::normalize($clubTeamName);
+
+            $equipesPoule = $api->listEquipePouleByLienDivision($divisionLink);
+            $clubByTeamName = [];
+            foreach ($equipesPoule as $equipePouleEntry) {
+                $normalizedName = self::normalize((string) $equipePouleEntry->getNomEquipe());
+                $clubByTeamName[$normalizedName] = (string) $equipePouleEntry->getIdCLub();
+            }
+
+            $matched = null;
+            foreach ($equipesPoule as $equipePoule) {
+                $poolTeamName = (string) $equipePoule->getNomEquipe();
+                $normalizedPoolTeamName = self::normalize($poolTeamName);
+
+                if (self::namesMatch($normalizedClubTeamName, $normalizedPoolTeamName)) {
+                    $matched = $equipePoule;
+                    break;
+                }
+            }
+
+            if ($matched === null) {
+                continue;
+            }
+
+            $matchedTeamId = (int) $matched->getIdEquipe();
+            if ($matchedTeamId !== $teamId) {
+                continue;
+            }
+
+            $contexts[$divisionLink] = [
+                'id' => $matchedTeamId,
+                'team_name' => (string) $matched->getNomEquipe(),
+                'division_link' => $divisionLink,
+                'club_by_team_name' => $clubByTeamName,
+                'phase' => $phase,
+            ];
+        }
+
+        return array_values($contexts);
     }
 
     public static function listLatestMatches(int $teamId): array
@@ -207,54 +328,75 @@ final class Api
             'clubId' => $clubId,
             'teamId' => $teamId,
             'limit' => $limit,
+            'today' => self::getTodayMarker(),
         ]);
 
         return self::remember($cacheKey, static function () use ($clubId, $teamId, $limit): array {
             $api = self::createClient();
-            $teamContext = self::findTeamContext($api, $clubId, $teamId);
-
-            $teamName = (string) $teamContext['team_name'];
-            $divisionLink = (string) $teamContext['division_link'];
-            $clubByTeamName = (array) ($teamContext['club_by_team_name'] ?? []);
-
-            $rencontres = $api->listRencontrePouleByLienDivision($divisionLink);
-
-            $normTeam = self::normalize($teamName);
+            $teamContexts = self::findTeamContexts($api, $clubId, $teamId);
+            if (empty($teamContexts)) {
+                throw new \RuntimeException('Equipe non trouvee pour ce club.');
+            }
+            $todayCutoff = self::getTodayCutoffTimestamp();
             $rows = [];
-            foreach ($rencontres as $rencontre) {
-                $nameA = (string) $rencontre->getNomEquipeA();
-                $nameB = (string) $rencontre->getNomEquipeB();
-                $normA = self::normalize($nameA);
-                $normB = self::normalize($nameB);
-
-                if ($normA !== $normTeam && $normB !== $normTeam) {
+            $seen = [];
+            foreach ($teamContexts as $teamContext) {
+                $teamName = (string) ($teamContext['team_name'] ?? '');
+                $divisionLink = (string) ($teamContext['division_link'] ?? '');
+                $clubByTeamName = (array) ($teamContext['club_by_team_name'] ?? []);
+                if ($divisionLink === '' || $teamName === '') {
                     continue;
                 }
 
-                $dateReelle = $rencontre->getDateReelle();
-                $datePrevue = $rencontre->getDatePrevue();
-                $dateReelleTs = $dateReelle ? $dateReelle->getTimestamp() : 0;
-                $datePrevueTs = $datePrevue ? $datePrevue->getTimestamp() : 0;
-                $timestamp = $dateReelleTs > 0 ? $dateReelleTs : $datePrevueTs;
-                $dateIso = $timestamp > 0 ? gmdate('c', $timestamp) : '';
+                $rencontres = $api->listRencontrePouleByLienDivision($divisionLink);
+                $normTeam = self::normalize($teamName);
+                foreach ($rencontres as $rencontre) {
+                    $nameA = (string) $rencontre->getNomEquipeA();
+                    $nameB = (string) $rencontre->getNomEquipeB();
+                    $normA = self::normalize($nameA);
+                    $normB = self::normalize($nameB);
 
-                $clubA = (string) ($clubByTeamName[$normA] ?? '');
-                $clubB = (string) ($clubByTeamName[$normB] ?? '');
+                    if ($normA !== $normTeam && $normB !== $normTeam) {
+                        continue;
+                    }
 
-                $rows[] = [
-                    'label' => sprintf('%s vs %s (%d-%d)', $nameA, $nameB, $rencontre->getScoreEquipeA(), $rencontre->getScoreEquipeB()),
-                    'lien' => (string) $rencontre->getLien(),
-                    'date' => $dateIso,
-                    'timestamp' => $timestamp,
-                    'teamA' => $nameA,
-                    'teamB' => $nameB,
-                    'scoreA' => (int) $rencontre->getScoreEquipeA(),
-                    'scoreB' => (int) $rencontre->getScoreEquipeB(),
-                    'clubA' => $clubA,
-                    'clubB' => $clubB,
-                    'dateReelleTs' => $dateReelleTs,
-                    'datePrevueTs' => $datePrevueTs,
-                ];
+                    $dateReelle = $rencontre->getDateReelle();
+                    $datePrevue = $rencontre->getDatePrevue();
+                    $dateReelleTs = $dateReelle ? $dateReelle->getTimestamp() : 0;
+                    $datePrevueTs = $datePrevue ? $datePrevue->getTimestamp() : 0;
+                    $timestamp = $dateReelleTs > 0 ? $dateReelleTs : $datePrevueTs;
+                    if ($timestamp <= 0 || $timestamp > $todayCutoff) {
+                        continue;
+                    }
+
+                    $lien = (string) $rencontre->getLien();
+                    $dedupeKey = md5($lien . '|' . $timestamp . '|' . $nameA . '|' . $nameB);
+                    if (isset($seen[$dedupeKey])) {
+                        continue;
+                    }
+                    $seen[$dedupeKey] = true;
+
+                    $dateIso = gmdate('c', $timestamp);
+                    $dateLabel = self::formatMatchDateLabel($timestamp);
+                    $clubA = (string) ($clubByTeamName[$normA] ?? '');
+                    $clubB = (string) ($clubByTeamName[$normB] ?? '');
+
+                    $rows[] = [
+                        'label' => sprintf('%s - %s vs %s (%d-%d)', $dateLabel, $nameA, $nameB, $rencontre->getScoreEquipeA(), $rencontre->getScoreEquipeB()),
+                        'lien' => $lien,
+                        'date' => $dateIso,
+                        'dateLabel' => $dateLabel,
+                        'timestamp' => $timestamp,
+                        'teamA' => $nameA,
+                        'teamB' => $nameB,
+                        'scoreA' => (int) $rencontre->getScoreEquipeA(),
+                        'scoreB' => (int) $rencontre->getScoreEquipeB(),
+                        'clubA' => $clubA,
+                        'clubB' => $clubB,
+                        'dateReelleTs' => $dateReelleTs,
+                        'datePrevueTs' => $datePrevueTs,
+                    ];
+                }
             }
 
             usort($rows, static function (array $left, array $right): int {
