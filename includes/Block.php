@@ -10,9 +10,109 @@ if (!defined('ABSPATH')) {
 
 final class Block
 {
+    private const CACHE_KEY_PREFIX = 'fftt_mb_html_';
+
     public static function boot(): void
     {
         add_action('init', [self::class, 'register']);
+        add_action('save_post', [self::class, 'invalidateCacheOnPostUpdate'], 10, 3);
+    }
+
+    public static function getCacheKeyPrefix(): string
+    {
+        return self::CACHE_KEY_PREFIX;
+    }
+
+    private static function getCacheTtl(): int
+    {
+        $opts = Settings::getOptions();
+        $defaultTtl = (int) ($opts['render_cache_ttl'] ?? 600);
+        $ttl = (int) apply_filters('fftt_match_block_render_cache_ttl', $defaultTtl);
+        if ($ttl < 0) {
+            $ttl = 0;
+        }
+
+        return $ttl;
+    }
+
+    private static function getCacheKey(string $link, string $clubA, string $clubB): string
+    {
+        $payload = [
+            'link' => $link,
+            'clubA' => $clubA,
+            'clubB' => $clubB,
+            'blog' => (int) get_current_blog_id(),
+        ];
+
+        return self::CACHE_KEY_PREFIX . md5((string) wp_json_encode($payload));
+    }
+
+    public static function deleteCacheForMatch(string $link, string $clubA = '', string $clubB = ''): void
+    {
+        $link = trim($link);
+        if ($link === '') {
+            return;
+        }
+
+        delete_transient(self::getCacheKey($link, $clubA, $clubB));
+    }
+
+    private static function collectCacheKeysFromBlocks(array $blocks, array &$keys): void
+    {
+        foreach ($blocks as $block) {
+            if (!is_array($block)) {
+                continue;
+            }
+
+            $blockName = isset($block['blockName']) ? (string) $block['blockName'] : '';
+            if ($blockName === 'fftt/match') {
+                $attrs = isset($block['attrs']) && is_array($block['attrs']) ? $block['attrs'] : [];
+                $link = isset($attrs['matchLink']) ? (string) $attrs['matchLink'] : '';
+                if ($link !== '') {
+                    $clubA = isset($attrs['matchClubA']) ? (string) $attrs['matchClubA'] : '';
+                    $clubB = isset($attrs['matchClubB']) ? (string) $attrs['matchClubB'] : '';
+                    $keys[] = self::getCacheKey($link, $clubA, $clubB);
+                }
+            }
+
+            $innerBlocks = isset($block['innerBlocks']) && is_array($block['innerBlocks']) ? $block['innerBlocks'] : [];
+            if (!empty($innerBlocks)) {
+                self::collectCacheKeysFromBlocks($innerBlocks, $keys);
+            }
+        }
+    }
+
+    public static function invalidateCacheOnPostUpdate(int $postId, \WP_Post $post, bool $update): void
+    {
+        if (!$update) {
+            return;
+        }
+        if (wp_is_post_revision($postId) || wp_is_post_autosave($postId)) {
+            return;
+        }
+
+        $content = (string) ($post->post_content ?? '');
+        if ($content === '' || strpos($content, '<!-- wp:fftt/match') === false) {
+            return;
+        }
+        if (!function_exists('parse_blocks')) {
+            return;
+        }
+
+        $blocks = parse_blocks($content);
+        if (!is_array($blocks) || empty($blocks)) {
+            return;
+        }
+
+        $keys = [];
+        self::collectCacheKeysFromBlocks($blocks, $keys);
+        if (empty($keys)) {
+            return;
+        }
+
+        foreach (array_unique($keys) as $cacheKey) {
+            delete_transient((string) $cacheKey);
+        }
     }
 
     public static function register(): void
@@ -56,6 +156,12 @@ final class Block
         $clubB = isset($attributes['matchClubB']) ? (string) $attributes['matchClubB'] : '';
         if ($link === '') {
             return '<p>Choisis un match FFTT dans le bloc.</p>';
+        }
+
+        $cacheKey = self::getCacheKey($link, $clubA, $clubB);
+        $cachedHtml = get_transient($cacheKey);
+        if (is_string($cachedHtml) && $cachedHtml !== '') {
+            return $cachedHtml;
         }
 
         try {
@@ -124,6 +230,13 @@ final class Block
         </div>
         <?php
 
-        return (string) ob_get_clean();
+        $html = (string) ob_get_clean();
+        $ttl = self::getCacheTtl();
+
+        if ($ttl > 0 && $html !== '') {
+            set_transient($cacheKey, $html, $ttl);
+        }
+
+        return $html;
     }
 }
