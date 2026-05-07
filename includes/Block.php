@@ -132,8 +132,16 @@ final class Block
             FFTT_MATCH_BLOCK_VERSION
         );
 
+        wp_register_style(
+            'fftt-match-block-editor-style',
+            FFTT_MATCH_BLOCK_URL . 'assets/editor.css',
+            ['wp-edit-blocks', 'fftt-match-block-style'],
+            FFTT_MATCH_BLOCK_VERSION
+        );
+
         register_block_type('fftt/match', [
             'editor_script' => 'fftt-match-block-editor',
+            'editor_style' => 'fftt-match-block-editor-style',
             'style' => 'fftt-match-block-style',
             'render_callback' => [self::class, 'render'],
             'attributes' => [

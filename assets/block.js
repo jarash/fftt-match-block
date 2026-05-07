@@ -8,6 +8,7 @@
     var Spinner = components.Spinner;
     var PanelBody = components.PanelBody;
     var InspectorControls = blockEditor.InspectorControls;
+    var useBlockProps = blockEditor.useBlockProps;
 
     function MatchPreview(props) {
         if (!props.item) {
@@ -43,6 +44,7 @@
         edit: function (props) {
             var attributes = props.attributes;
             var setAttributes = props.setAttributes;
+            var blockProps = useBlockProps({ className: 'fftt-match-block-editor' });
 
             var teams = useState([]);
             var matches = useState([]);
@@ -160,7 +162,7 @@
                 })
             );
 
-            return el('div', { className: props.className }, [
+            return el('div', blockProps, [
                 el(InspectorControls, {},
                     el(PanelBody, { title: 'Selection du match', initialOpen: true }, [
                         el(SelectControl, {
@@ -239,8 +241,8 @@
                 loadingTeamsValue ? el(Spinner) : null,
                 loadingMatchesValue ? el(Spinner) : null,
                 errorValue ? el(Notice, { status: 'error', isDismissible: false }, errorValue) : null,
-                !attributes.teamId ? el('p', {}, 'Choisis une equipe dans la colonne de droite.') : null,
-                attributes.teamId && !attributes.matchLink ? el('p', {}, 'Choisis un match dans la colonne de droite.') : null,
+                !attributes.teamId ? el('div', { className: 'fftt-match-block-placeholder' }, 'Choisis une equipe dans la colonne de droite.') : null,
+                attributes.teamId && !attributes.matchLink ? el('div', { className: 'fftt-match-block-placeholder' }, 'Choisis un match dans la colonne de droite.') : null,
                 el(MatchPreview, { item: getPreviewItem() })
             ]);
         },
