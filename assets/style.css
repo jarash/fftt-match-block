@@ -64,6 +64,72 @@
     white-space: nowrap;
 }
 
+.fftt-parties-wrap {
+    position: relative;
+}
+
+.fftt-parties-wrap.is-collapsed .fftt-partie-hidden {
+    display: none;
+}
+
+.fftt-parties-fade {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 30px;
+    height: 52px;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 80%);
+}
+
+.fftt-parties-wrap.is-collapsed .fftt-parties-fade {
+    display: block;
+}
+
+.fftt-parties-toggle {
+    position: relative;
+    z-index: 2;
+    margin-top: 6px;
+    width: 100%;
+    border: 0;
+    padding: 10px 0;
+    background: transparent;
+    color: #000;
+    font-size: 14px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.fftt-parties-toggle:hover {
+    color: #2f3845;
+}
+
+.fftt-parties-toggle:focus-visible {
+    outline: 2px solid #9aa4b2;
+    outline-offset: 2px;
+}
+
+.fftt-parties-toggle-arrow {
+    width: 9px;
+    height: 9px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.2s ease;
+    margin-top: -3px;
+}
+
+.fftt-parties-wrap:not(.is-collapsed) .fftt-parties-toggle-arrow {
+    transform: rotate(-135deg);
+    margin-top: 3px;
+}
+
 @media (max-width: 640px) {
     .fftt-match-score {
         font-size: 14px;

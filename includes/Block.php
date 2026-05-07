@@ -139,9 +139,18 @@ final class Block
             FFTT_MATCH_BLOCK_VERSION
         );
 
+        wp_register_script(
+            'fftt-match-block-view',
+            FFTT_MATCH_BLOCK_URL . 'assets/view.js',
+            [],
+            FFTT_MATCH_BLOCK_VERSION,
+            true
+        );
+
         register_block_type('fftt/match', [
             'editor_script' => 'fftt-match-block-editor',
             'editor_style' => 'fftt-match-block-editor-style',
+            'view_script' => 'fftt-match-block-view',
             'style' => 'fftt-match-block-style',
             'render_callback' => [self::class, 'render'],
             'attributes' => [
@@ -203,54 +212,70 @@ final class Block
                 <span class="fftt-team"><?php echo esc_html($details['teamB']); ?></span>
             </div>
 
-            <table class="fftt-parties-table">
-                <thead>
-                    <tr>
-                        <th>Joueur 1</th>
-                        <th>Score</th>
-                        <th>Joueur 2</th>
-                        <th>Details des sets</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($details['parties'] as $partie): ?>
-                        <?php
-                        $winnerSide = isset($partie['winnerSide']) ? (string) $partie['winnerSide'] : '';
-                        $playerA = (string) ($partie['playerA'] ?? '');
-                        $playerB = (string) ($partie['playerB'] ?? '');
-                        $sets = isset($partie['setDetails']) && is_array($partie['setDetails']) ? $partie['setDetails'] : [];
-                        ?>
+            <?php
+            $parties = isset($details['parties']) && is_array($details['parties']) ? $details['parties'] : [];
+            $hiddenCount = max(0, count($parties) - 4);
+            $tableId = 'fftt-parties-' . substr(md5($cacheKey), 0, 10);
+            ?>
+            <div class="fftt-parties-wrap<?php echo $hiddenCount > 0 ? ' is-collapsed' : ''; ?>" id="<?php echo esc_attr($tableId); ?>">
+                <table class="fftt-parties-table">
+                    <thead>
                         <tr>
-                            <td>
-                                <?php if ($winnerSide === 'A'): ?>
-                                    <strong><?php echo esc_html($playerA); ?></strong>
-                                <?php else: ?>
-                                    <?php echo esc_html($playerA); ?>
-                                <?php endif; ?>
-                            </td>
-                            <td><?php echo (int) $partie['scoreA']; ?> - <?php echo (int) $partie['scoreB']; ?></td>
-                            <td>
-                                <?php if ($winnerSide === 'B'): ?>
-                                    <strong><?php echo esc_html($playerB); ?></strong>
-                                <?php else: ?>
-                                    <?php echo esc_html($playerB); ?>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if (empty($sets)): ?>
-                                    <span class="fftt-set-score">-</span>
-                                <?php else: ?>
-                                    <span class="fftt-sets">
-                                        <?php foreach ($sets as $setScore): ?>
-                                            <span class="fftt-set-score"><?php echo esc_html((string) $setScore); ?></span>
-                                        <?php endforeach; ?>
-                                    </span>
-                                <?php endif; ?>
-                            </td>
+                            <th>Joueur 1</th>
+                            <th>Score</th>
+                            <th>Joueur 2</th>
+                            <th>Details des sets</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($parties as $index => $partie): ?>
+                            <?php
+                            $winnerSide = isset($partie['winnerSide']) ? (string) $partie['winnerSide'] : '';
+                            $playerA = (string) ($partie['playerA'] ?? '');
+                            $playerB = (string) ($partie['playerB'] ?? '');
+                            $sets = isset($partie['setDetails']) && is_array($partie['setDetails']) ? $partie['setDetails'] : [];
+                            $rowClass = $index >= 4 ? 'fftt-partie-hidden' : '';
+                            ?>
+                            <tr class="<?php echo esc_attr($rowClass); ?>">
+                                <td>
+                                    <?php if ($winnerSide === 'A'): ?>
+                                        <strong><?php echo esc_html($playerA); ?></strong>
+                                    <?php else: ?>
+                                        <?php echo esc_html($playerA); ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo (int) $partie['scoreA']; ?> - <?php echo (int) $partie['scoreB']; ?></td>
+                                <td>
+                                    <?php if ($winnerSide === 'B'): ?>
+                                        <strong><?php echo esc_html($playerB); ?></strong>
+                                    <?php else: ?>
+                                        <?php echo esc_html($playerB); ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (empty($sets)): ?>
+                                        <span class="fftt-set-score">-</span>
+                                    <?php else: ?>
+                                        <span class="fftt-sets">
+                                            <?php foreach ($sets as $setScore): ?>
+                                                <span class="fftt-set-score"><?php echo esc_html((string) $setScore); ?></span>
+                                            <?php endforeach; ?>
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+
+                <?php if ($hiddenCount > 0): ?>
+                    <div class="fftt-parties-fade" aria-hidden="true"></div>
+                    <button type="button" class="fftt-parties-toggle" data-target="<?php echo esc_attr($tableId); ?>" aria-expanded="false">
+                        <span class="fftt-parties-toggle-label">Voir toutes les rencontres</span>
+                        <span class="fftt-parties-toggle-arrow" aria-hidden="true"></span>
+                    </button>
+                <?php endif; ?>
+            </div>
         </div>
         <?php
 
