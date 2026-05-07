@@ -145,6 +145,22 @@ final class Block
                     'type' => 'string',
                     'default' => '',
                 ],
+                'teamA' => [
+                    'type' => 'string',
+                    'default' => '',
+                ],
+                'teamB' => [
+                    'type' => 'string',
+                    'default' => '',
+                ],
+                'scoreA' => [
+                    'type' => 'number',
+                    'default' => 0,
+                ],
+                'scoreB' => [
+                    'type' => 'number',
+                    'default' => 0,
+                ],
             ],
         ]);
     }

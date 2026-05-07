@@ -12,12 +12,57 @@ if (!defined('ABSPATH')) {
 
 final class Api
 {
+    private const CACHE_KEY_PREFIX = 'fftt_mb_api_';
+
     private static function loadVendor(): void
     {
         $autoload = FFTT_MATCH_BLOCK_PATH . 'vendor/autoload.php';
         if (file_exists($autoload)) {
             require_once $autoload;
         }
+    }
+
+    public static function getCacheKeyPrefix(): string
+    {
+        return self::CACHE_KEY_PREFIX;
+    }
+
+    private static function getCacheTtl(): int
+    {
+        $opts = Settings::getOptions();
+        $ttl = (int) ($opts['api_cache_ttl'] ?? 3600);
+        $ttl = (int) apply_filters('fftt_match_block_api_cache_ttl', $ttl);
+        if ($ttl < 0) {
+            $ttl = 0;
+        }
+
+        return $ttl;
+    }
+
+    private static function getCacheKey(string $group, array $payload = []): string
+    {
+        $payload['group'] = $group;
+        $payload['blog'] = (int) get_current_blog_id();
+
+        return self::CACHE_KEY_PREFIX . md5((string) wp_json_encode($payload));
+    }
+
+    private static function remember(string $cacheKey, callable $resolver): array
+    {
+        $ttl = self::getCacheTtl();
+        if ($ttl <= 0) {
+            return $resolver();
+        }
+
+        $cached = get_transient($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $value = $resolver();
+        set_transient($cacheKey, $value, $ttl);
+
+        return $value;
     }
 
     private static function createClient(): FFTTApi
@@ -118,21 +163,25 @@ final class Api
     public static function listTeamsByClub(): array
     {
         $clubId = self::getClubIdFromSettings();
-        $api = self::createClient();
-        $contexts = self::buildClubTeamContexts($api, $clubId);
-        $teams = [];
-        foreach ($contexts as $context) {
-            $teams[] = [
-                'id' => (int) $context['id'],
-                'name' => (string) $context['team_name'],
-            ];
-        }
+        $cacheKey = self::getCacheKey('teams', ['clubId' => $clubId]);
 
-        usort($teams, static function (array $left, array $right): int {
-            return strnatcasecmp((string) $left['name'], (string) $right['name']);
+        return self::remember($cacheKey, static function () use ($clubId): array {
+            $api = self::createClient();
+            $contexts = self::buildClubTeamContexts($api, $clubId);
+            $teams = [];
+            foreach ($contexts as $context) {
+                $teams[] = [
+                    'id' => (int) $context['id'],
+                    'name' => (string) $context['team_name'],
+                ];
+            }
+
+            usort($teams, static function (array $left, array $right): int {
+                return strnatcasecmp((string) $left['name'], (string) $right['name']);
+            });
+
+            return $teams;
         });
-
-        return $teams;
     }
 
     private static function findTeamContext(FFTTApi $api, string $clubId, int $teamId): array
@@ -154,79 +203,86 @@ final class Api
 
         $opts = Settings::getOptions();
         $limit = (int) ($opts['matches_limit'] ?? 8);
+        $cacheKey = self::getCacheKey('matches', [
+            'clubId' => $clubId,
+            'teamId' => $teamId,
+            'limit' => $limit,
+        ]);
 
-        $api = self::createClient();
-        $teamContext = self::findTeamContext($api, $clubId, $teamId);
+        return self::remember($cacheKey, static function () use ($clubId, $teamId, $limit): array {
+            $api = self::createClient();
+            $teamContext = self::findTeamContext($api, $clubId, $teamId);
 
-        $teamName = (string) $teamContext['team_name'];
-        $divisionLink = (string) $teamContext['division_link'];
-        $clubByTeamName = (array) ($teamContext['club_by_team_name'] ?? []);
+            $teamName = (string) $teamContext['team_name'];
+            $divisionLink = (string) $teamContext['division_link'];
+            $clubByTeamName = (array) ($teamContext['club_by_team_name'] ?? []);
 
-        $rencontres = $api->listRencontrePouleByLienDivision($divisionLink);
+            $rencontres = $api->listRencontrePouleByLienDivision($divisionLink);
 
-        $normTeam = self::normalize($teamName);
-        $rows = [];
-        foreach ($rencontres as $rencontre) {
-            $nameA = (string) $rencontre->getNomEquipeA();
-            $nameB = (string) $rencontre->getNomEquipeB();
-            $normA = self::normalize($nameA);
-            $normB = self::normalize($nameB);
+            $normTeam = self::normalize($teamName);
+            $rows = [];
+            foreach ($rencontres as $rencontre) {
+                $nameA = (string) $rencontre->getNomEquipeA();
+                $nameB = (string) $rencontre->getNomEquipeB();
+                $normA = self::normalize($nameA);
+                $normB = self::normalize($nameB);
 
-            if ($normA !== $normTeam && $normB !== $normTeam) {
-                continue;
+                if ($normA !== $normTeam && $normB !== $normTeam) {
+                    continue;
+                }
+
+                $dateReelle = $rencontre->getDateReelle();
+                $datePrevue = $rencontre->getDatePrevue();
+                $dateReelleTs = $dateReelle ? $dateReelle->getTimestamp() : 0;
+                $datePrevueTs = $datePrevue ? $datePrevue->getTimestamp() : 0;
+                $timestamp = $dateReelleTs > 0 ? $dateReelleTs : $datePrevueTs;
+                $dateIso = $timestamp > 0 ? gmdate('c', $timestamp) : '';
+
+                $clubA = (string) ($clubByTeamName[$normA] ?? '');
+                $clubB = (string) ($clubByTeamName[$normB] ?? '');
+
+                $rows[] = [
+                    'label' => sprintf('%s vs %s (%d-%d)', $nameA, $nameB, $rencontre->getScoreEquipeA(), $rencontre->getScoreEquipeB()),
+                    'lien' => (string) $rencontre->getLien(),
+                    'date' => $dateIso,
+                    'timestamp' => $timestamp,
+                    'teamA' => $nameA,
+                    'teamB' => $nameB,
+                    'scoreA' => (int) $rencontre->getScoreEquipeA(),
+                    'scoreB' => (int) $rencontre->getScoreEquipeB(),
+                    'clubA' => $clubA,
+                    'clubB' => $clubB,
+                    'dateReelleTs' => $dateReelleTs,
+                    'datePrevueTs' => $datePrevueTs,
+                ];
             }
 
-            $dateReelle = $rencontre->getDateReelle();
-            $datePrevue = $rencontre->getDatePrevue();
-            $dateReelleTs = $dateReelle ? $dateReelle->getTimestamp() : 0;
-            $datePrevueTs = $datePrevue ? $datePrevue->getTimestamp() : 0;
-            $timestamp = $dateReelleTs > 0 ? $dateReelleTs : $datePrevueTs;
-            $dateIso = $timestamp > 0 ? gmdate('c', $timestamp) : '';
+            usort($rows, static function (array $left, array $right): int {
+                $leftReal = (int) ($left['dateReelleTs'] ?? 0);
+                $rightReal = (int) ($right['dateReelleTs'] ?? 0);
+                if ($leftReal !== $rightReal) {
+                    return $rightReal <=> $leftReal;
+                }
 
-            $clubA = (string) ($clubByTeamName[$normA] ?? '');
-            $clubB = (string) ($clubByTeamName[$normB] ?? '');
+                $leftPlanned = (int) ($left['datePrevueTs'] ?? 0);
+                $rightPlanned = (int) ($right['datePrevueTs'] ?? 0);
+                if ($leftPlanned !== $rightPlanned) {
+                    return $rightPlanned <=> $leftPlanned;
+                }
 
-            $rows[] = [
-                'label' => sprintf('%s vs %s (%d-%d)', $nameA, $nameB, $rencontre->getScoreEquipeA(), $rencontre->getScoreEquipeB()),
-                'lien' => (string) $rencontre->getLien(),
-                'date' => $dateIso,
-                'timestamp' => $timestamp,
-                'teamA' => $nameA,
-                'teamB' => $nameB,
-                'scoreA' => (int) $rencontre->getScoreEquipeA(),
-                'scoreB' => (int) $rencontre->getScoreEquipeB(),
-                'clubA' => $clubA,
-                'clubB' => $clubB,
-                'dateReelleTs' => $dateReelleTs,
-                'datePrevueTs' => $datePrevueTs,
-            ];
-        }
+                return strnatcasecmp((string) ($right['label'] ?? ''), (string) ($left['label'] ?? ''));
+            });
 
-        usort($rows, static function (array $left, array $right): int {
-            $leftReal = (int) ($left['dateReelleTs'] ?? 0);
-            $rightReal = (int) ($right['dateReelleTs'] ?? 0);
-            if ($leftReal !== $rightReal) {
-                return $rightReal <=> $leftReal;
-            }
+            $rows = array_slice($rows, 0, $limit);
+            $cleaned = array_map(static function (array $row): array {
+                unset($row['timestamp']);
+                unset($row['dateReelleTs']);
+                unset($row['datePrevueTs']);
+                return $row;
+            }, $rows);
 
-            $leftPlanned = (int) ($left['datePrevueTs'] ?? 0);
-            $rightPlanned = (int) ($right['datePrevueTs'] ?? 0);
-            if ($leftPlanned !== $rightPlanned) {
-                return $rightPlanned <=> $leftPlanned;
-            }
-
-            return strnatcasecmp((string) ($right['label'] ?? ''), (string) ($left['label'] ?? ''));
+            return $cleaned;
         });
-
-        $rows = array_slice($rows, 0, $limit);
-        $cleaned = array_map(static function (array $row): array {
-            unset($row['timestamp']);
-            unset($row['dateReelleTs']);
-            unset($row['datePrevueTs']);
-            return $row;
-        }, $rows);
-
-        return $cleaned;
     }
 
     public static function getMatchDetailsByLink(string $link, string $clubA = '', string $clubB = ''): array
@@ -242,51 +298,59 @@ final class Api
             throw new \RuntimeException('Impossible de determiner les clubs des deux equipes pour ce match.');
         }
 
-        $api = self::createClient();
-        $details = $api->retrieveRencontreDetailsByLien($link, $clubA, $clubB);
+        $cacheKey = self::getCacheKey('match-details', [
+            'link' => $link,
+            'clubA' => $clubA,
+            'clubB' => $clubB,
+        ]);
 
-        $teamA = (string) $details->getNomEquipeA();
-        $teamB = (string) $details->getNomEquipeB();
-        $scoreA = (int) $details->getScoreEquipeA();
-        $scoreB = (int) $details->getScoreEquipeB();
+        return self::remember($cacheKey, static function () use ($link, $clubA, $clubB): array {
+            $api = self::createClient();
+            $details = $api->retrieveRencontreDetailsByLien($link, $clubA, $clubB);
 
-        $winnerTeam = 'Egalite';
-        if ($scoreA > $scoreB) {
-            $winnerTeam = $teamA;
-        } elseif ($scoreB > $scoreA) {
-            $winnerTeam = $teamB;
-        }
+            $teamA = (string) $details->getNomEquipeA();
+            $teamB = (string) $details->getNomEquipeB();
+            $scoreA = (int) $details->getScoreEquipeA();
+            $scoreB = (int) $details->getScoreEquipeB();
 
-        $parties = [];
-        foreach ($details->getParties() as $partie) {
-            $pScoreA = (int) $partie->getScoreA();
-            $pScoreB = (int) $partie->getScoreB();
-
-            $winnerSide = '';
-            if ($pScoreA > $pScoreB) {
-                $winnerSide = 'A';
-            } elseif ($pScoreB > $pScoreA) {
-                $winnerSide = 'B';
+            $winnerTeam = 'Egalite';
+            if ($scoreA > $scoreB) {
+                $winnerTeam = $teamA;
+            } elseif ($scoreB > $scoreA) {
+                $winnerTeam = $teamB;
             }
 
-            $parties[] = [
-                'playerA' => (string) $partie->getAdversaireA(),
-                'playerB' => (string) $partie->getAdversaireB(),
-                'scoreA' => $pScoreA,
-                'scoreB' => $pScoreB,
-                'winnerSide' => $winnerSide,
-                'setDetails' => $partie->getSetDetails(),
-            ];
-        }
+            $parties = [];
+            foreach ($details->getParties() as $partie) {
+                $pScoreA = (int) $partie->getScoreA();
+                $pScoreB = (int) $partie->getScoreB();
 
-        return [
-            'teamA' => $teamA,
-            'teamB' => $teamB,
-            'scoreA' => $scoreA,
-            'scoreB' => $scoreB,
-            'winnerTeam' => $winnerTeam,
-            'parties' => $parties,
-            'lien' => $link,
-        ];
+                $winnerSide = '';
+                if ($pScoreA > $pScoreB) {
+                    $winnerSide = 'A';
+                } elseif ($pScoreB > $pScoreA) {
+                    $winnerSide = 'B';
+                }
+
+                $parties[] = [
+                    'playerA' => (string) $partie->getAdversaireA(),
+                    'playerB' => (string) $partie->getAdversaireB(),
+                    'scoreA' => $pScoreA,
+                    'scoreB' => $pScoreB,
+                    'winnerSide' => $winnerSide,
+                    'setDetails' => $partie->getSetDetails(),
+                ];
+            }
+
+            return [
+                'teamA' => $teamA,
+                'teamB' => $teamB,
+                'scoreA' => $scoreA,
+                'scoreB' => $scoreB,
+                'winnerTeam' => $winnerTeam,
+                'parties' => $parties,
+                'lien' => $link,
+            ];
+        });
     }
 }

@@ -14,47 +14,11 @@
             return null;
         }
 
-        var rows = (props.item.parties || []).map(function (partie, index) {
-            var sets = Array.isArray(partie.setDetails) ? partie.setDetails : [];
-            var setsNode = sets.length
-                ? el('span', { className: 'fftt-sets' }, sets.map(function (setScore, setIndex) {
-                    return el('span', { className: 'fftt-set-score', key: String(index) + '-set-' + String(setIndex) }, String(setScore));
-                }))
-                : el('span', { className: 'fftt-set-score' }, '-');
-
-            var playerA = partie.playerA;
-            var playerB = partie.playerB;
-
-            if (partie.winnerSide === 'A') {
-                playerA = el('strong', {}, partie.playerA);
-            }
-
-            if (partie.winnerSide === 'B') {
-                playerB = el('strong', {}, partie.playerB);
-            }
-
-            return el('tr', { key: index }, [
-                el('td', {}, playerA),
-                el('td', {}, String(partie.scoreA) + ' - ' + String(partie.scoreB)),
-                el('td', {}, playerB),
-                el('td', {}, setsNode)
-            ]);
-        });
-
         return el('div', { className: 'fftt-match-block preview' }, [
             el('div', { className: 'fftt-match-score' }, [
                 el('span', { className: 'fftt-team' }, props.item.teamA),
                 el('strong', { className: 'fftt-score' }, String(props.item.scoreA) + ' - ' + String(props.item.scoreB)),
                 el('span', { className: 'fftt-team' }, props.item.teamB)
-            ]),
-            el('table', { className: 'fftt-parties-table' }, [
-                el('thead', {}, el('tr', {}, [
-                    el('th', {}, 'Joueur 1'),
-                    el('th', {}, 'Score'),
-                    el('th', {}, 'Joueur 2'),
-                    el('th', {}, 'Details des sets')
-                ])),
-                el('tbody', {}, rows)
             ])
         ]);
     }
@@ -69,7 +33,11 @@
             matchLink: { type: 'string', default: '' },
             matchLabel: { type: 'string', default: '' },
             matchClubA: { type: 'string', default: '' },
-            matchClubB: { type: 'string', default: '' }
+            matchClubB: { type: 'string', default: '' },
+            teamA: { type: 'string', default: '' },
+            teamB: { type: 'string', default: '' },
+            scoreA: { type: 'number', default: 0 },
+            scoreB: { type: 'number', default: 0 }
         },
 
         edit: function (props) {
@@ -81,8 +49,6 @@
             var isLoadingTeams = useState(true);
             var isLoadingMatches = useState(false);
             var error = useState('');
-            var preview = useState(null);
-            var previewLoading = useState(false);
 
             var teamsValue = teams[0];
             var setTeams = teams[1];
@@ -94,10 +60,6 @@
             var setLoadingMatches = isLoadingMatches[1];
             var errorValue = error[0];
             var setError = error[1];
-            var previewValue = preview[0];
-            var setPreview = preview[1];
-            var previewLoadingValue = previewLoading[0];
-            var setPreviewLoading = previewLoading[1];
 
             function loadTeams() {
                 setLoadingTeams(true);
@@ -151,29 +113,6 @@
                 });
             }
 
-            function loadPreview(link, clubA, clubB) {
-                if (!link || !clubA || !clubB) {
-                    setPreview(null);
-                    return;
-                }
-
-                setPreviewLoading(true);
-                var path = '/fftt-match/v1/match-details?lien=' + encodeURIComponent(link)
-                    + '&clubA=' + encodeURIComponent(clubA)
-                    + '&clubB=' + encodeURIComponent(clubB);
-
-                apiFetch({ path: path })
-                    .then(function (response) {
-                        setPreview(response.item || null);
-                        setPreviewLoading(false);
-                    })
-                    .catch(function (err) {
-                        setError(err && err.message ? err.message : 'Erreur preview.');
-                        setPreview(null);
-                        setPreviewLoading(false);
-                    });
-            }
-
             useEffect(function () {
                 loadTeams();
             }, []);
@@ -182,9 +121,26 @@
                 loadMatches(attributes.teamId || 0);
             }, [attributes.teamId]);
 
-            useEffect(function () {
-                loadPreview(attributes.matchLink, attributes.matchClubA, attributes.matchClubB);
-            }, [attributes.matchLink, attributes.matchClubA, attributes.matchClubB]);
+            function getPreviewItem() {
+                var i;
+
+                for (i = 0; i < matchesValue.length; i += 1) {
+                    if (matchesValue[i].lien === attributes.matchLink) {
+                        return matchesValue[i];
+                    }
+                }
+
+                if (attributes.teamA && attributes.teamB) {
+                    return {
+                        teamA: attributes.teamA,
+                        teamB: attributes.teamB,
+                        scoreA: attributes.scoreA,
+                        scoreB: attributes.scoreB
+                    };
+                }
+
+                return null;
+            }
 
             var teamOptions = [{ label: 'Selectionner une equipe', value: 0 }].concat(
                 teamsValue.map(function (item) {
@@ -227,9 +183,12 @@
                                     matchLink: '',
                                     matchLabel: '',
                                     matchClubA: '',
-                                    matchClubB: ''
+                                    matchClubB: '',
+                                    teamA: '',
+                                    teamB: '',
+                                    scoreA: 0,
+                                    scoreB: 0
                                 });
-                                setPreview(null);
                             }
                         }),
                         el(SelectControl, {
@@ -240,11 +199,19 @@
                                 var label = '';
                                 var clubA = '';
                                 var clubB = '';
+                                var teamA = '';
+                                var teamB = '';
+                                var scoreA = 0;
+                                var scoreB = 0;
                                 for (var i = 0; i < matchesValue.length; i += 1) {
                                     if (matchesValue[i].lien === value) {
                                         label = matchesValue[i].label;
                                         clubA = String(matchesValue[i].clubA || '');
                                         clubB = String(matchesValue[i].clubB || '');
+                                        teamA = String(matchesValue[i].teamA || '');
+                                        teamB = String(matchesValue[i].teamB || '');
+                                        scoreA = Number(matchesValue[i].scoreA || 0);
+                                        scoreB = Number(matchesValue[i].scoreB || 0);
                                         break;
                                     }
                                 }
@@ -252,7 +219,11 @@
                                     matchLink: value,
                                     matchLabel: label,
                                     matchClubA: clubA,
-                                    matchClubB: clubB
+                                    matchClubB: clubB,
+                                    teamA: teamA,
+                                    teamB: teamB,
+                                    scoreA: scoreA,
+                                    scoreB: scoreB
                                 });
                             }
                         }),
@@ -270,8 +241,7 @@
                 errorValue ? el(Notice, { status: 'error', isDismissible: false }, errorValue) : null,
                 !attributes.teamId ? el('p', {}, 'Choisis une equipe dans la colonne de droite.') : null,
                 attributes.teamId && !attributes.matchLink ? el('p', {}, 'Choisis un match dans la colonne de droite.') : null,
-                previewLoadingValue ? el(Spinner) : null,
-                el(MatchPreview, { item: previewValue })
+                el(MatchPreview, { item: getPreviewItem() })
             ]);
         },
 

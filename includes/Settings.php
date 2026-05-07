@@ -26,6 +26,7 @@ final class Settings
             'api_password' => '',
             'club_id' => '',
             'matches_limit' => 8,
+            'api_cache_ttl' => 3600,
             'render_cache_ttl' => 600,
         ];
     }
@@ -76,6 +77,7 @@ final class Settings
         self::addField('api_password', 'Mot de passe / cle API FFTT', 'password');
         self::addField('club_id', 'ID Club FFTT');
         self::addField('matches_limit', 'Nombre de matchs proposes', 'number');
+        self::addField('api_cache_ttl', 'Duree du cache API FFTT (secondes, 0 = desactive)', 'number');
         self::addField('render_cache_ttl', 'Duree du cache HTML (secondes, 0 = desactive)', 'number');
     }
 
@@ -157,6 +159,15 @@ final class Settings
         }
         $out['render_cache_ttl'] = $ttl;
 
+        $apiTtl = (int) ($input['api_cache_ttl'] ?? $defaults['api_cache_ttl']);
+        if ($apiTtl < 0) {
+            $apiTtl = 0;
+        }
+        if ($apiTtl > 86400) {
+            $apiTtl = 86400;
+        }
+        $out['api_cache_ttl'] = $apiTtl;
+
         return $out;
     }
 
@@ -171,22 +182,28 @@ final class Settings
         $deleted = 0;
 
         if ($wpdb instanceof \wpdb) {
-            $prefix = Block::getCacheKeyPrefix();
-            $transientPrefix = $wpdb->esc_like('_transient_' . $prefix) . '%';
-            $timeoutPrefix = $wpdb->esc_like('_transient_timeout_' . $prefix) . '%';
+            $prefixes = [
+                Block::getCacheKeyPrefix(),
+                Api::getCacheKeyPrefix(),
+            ];
 
-            $deleted += (int) $wpdb->query(
-                $wpdb->prepare(
-                    "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
-                    $transientPrefix
-                )
-            );
-            $deleted += (int) $wpdb->query(
-                $wpdb->prepare(
-                    "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
-                    $timeoutPrefix
-                )
-            );
+            foreach ($prefixes as $prefix) {
+                $transientPrefix = $wpdb->esc_like('_transient_' . $prefix) . '%';
+                $timeoutPrefix = $wpdb->esc_like('_transient_timeout_' . $prefix) . '%';
+
+                $deleted += (int) $wpdb->query(
+                    $wpdb->prepare(
+                        "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                        $transientPrefix
+                    )
+                );
+                $deleted += (int) $wpdb->query(
+                    $wpdb->prepare(
+                        "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                        $timeoutPrefix
+                    )
+                );
+            }
         }
 
         $url = add_query_arg(
@@ -229,11 +246,11 @@ final class Settings
 
             <hr />
             <h2>Maintenance du cache</h2>
-            <p>Vide manuellement le cache HTML du bloc FFTT.</p>
+            <p>Vide manuellement le cache API FFTT et le cache HTML du bloc.</p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <input type="hidden" name="action" value="fftt_match_block_clear_cache" />
                 <?php wp_nonce_field('fftt_match_block_clear_cache'); ?>
-                <?php submit_button('Vider le cache HTML FFTT', 'secondary', 'submit', false); ?>
+                <?php submit_button('Vider les caches FFTT', 'secondary', 'submit', false); ?>
             </form>
         </div>
         <?php
