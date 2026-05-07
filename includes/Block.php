@@ -224,7 +224,7 @@ final class Block
                             <th>Joueur 1</th>
                             <th>Score</th>
                             <th>Joueur 2</th>
-                            <th>Details des sets</th>
+                            <th>Sets</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -271,7 +271,7 @@ final class Block
                 <?php if ($hiddenCount > 0): ?>
                     <div class="fftt-parties-fade" aria-hidden="true"></div>
                     <button type="button" class="fftt-parties-toggle" data-target="<?php echo esc_attr($tableId); ?>" aria-expanded="false">
-                        <span class="fftt-parties-toggle-label">Voir toutes les rencontres</span>
+                        <span class="fftt-parties-toggle-label">Voir toutes les parties</span>
                         <span class="fftt-parties-toggle-arrow" aria-hidden="true"></span>
                     </button>
                 <?php endif; ?>
