@@ -17,9 +17,14 @@ jobs:
       - name: Extract changelog
         id: changelog
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          # Extrait la section du changelog pour cette version jusqu'à la prochaine version ou fin du fichier
-          CHANGELOG=$(sed -n "/## \[$VERSION\]/,/## \[/p" CHANGELOG.md | sed '$d' | tail -n +2)
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          # Extrait la section du changelog pour cette version (CHANGELOG utilise X.Y.Z, pas vX.Y.Z)
+          CHANGELOG=$(awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { in_section=1; next }
+            in_section && $0 ~ "^## \\[" { exit }
+            in_section { print }
+          ' CHANGELOG.md)
           # Escape pour les passer en output
           CHANGELOG="${CHANGELOG//'%'/'%25'}"
           CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
