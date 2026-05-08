@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1] - 2026-05-08
+
+### Corrigé
+- URL GitHub mise à jour pour le système d'auto-update (`jarash/fftt-match-block`)
+- Version du plugin synchronisée avec le changelog
+
+---
+
 ## [1.1.0] - 2026-05-08
 
 ### Ajouté

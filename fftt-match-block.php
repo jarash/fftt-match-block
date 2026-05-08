@@ -2,7 +2,7 @@
 /**
  * Plugin Name: FFTT Match Block
  * Description: Bloc Gutenberg pour afficher un match FFTT (score des equipes + parties avec vainqueur).
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: Vincent Rousseau
  * Update URI: https://github.com/jarash/fftt-match-block
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('FFTT_MATCH_BLOCK_VERSION', '1.1.0');
+define('FFTT_MATCH_BLOCK_VERSION', '1.1.1');
 define('FFTT_MATCH_BLOCK_PATH', plugin_dir_path(__FILE__));
 define('FFTT_MATCH_BLOCK_URL', plugin_dir_url(__FILE__));
 
